@@ -440,7 +440,9 @@ AC_CONFIG_FILES([Makefile
                  src/plugins/example-ldns-aaaa-blocking/Makefile
                  src/plugins/example-ldns-blocking/Makefile
                  src/plugins/example-ldns-opendns-deviceid/Makefile
-                 test/Makefile])
+])
+dnl                 test/Makefile
+
 
 AC_OUTPUT
 

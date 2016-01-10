@@ -21,5 +21,6 @@ SUBDIRS += \
 endif
 
 SUBDIRS += \
-	src \
-	test
+	src
+
+#	test

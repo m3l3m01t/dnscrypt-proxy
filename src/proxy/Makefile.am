@@ -48,18 +48,21 @@ AM_CFLAGS = @CWFLAGS@
 
 AM_CPPFLAGS = \
 	-I../ext \
-	-I../libevent/include \
 	-I../@NACL_PATH@/include/local
+	`pkg-config --cflags libevent`
+#	-I../libevent/include
 
-dnscrypt_proxy_LDADD = \
-	../libevent/libevent_extra.la \
-	../libevent/libevent_core.la \
+dnscrypt_proxy_LDADD = `pkg-config --libs libevent_extra libevent_openssl libevent` \
 	../@NACL_PATH@/lib/local/libnacl.a
 
+#	../libevent/libevent_extra.la \
+#	../libevent/libevent_core.la \
+
 dnscrypt_proxy_DEPENDENCIES = \
-	../libevent/libevent_extra.la \
-	../libevent/libevent_core.la \
 	../libnacl/.done
+
+#	../libevent/libevent_extra.la \
+#	../libevent/libevent_core.la \
 
 BUILT_SOURCES = \
 	../libnacl/.done \
