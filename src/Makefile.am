@@ -3,9 +3,8 @@ SUBDIRS = \
 	ext \
 	libnacl \
 	proxy \
-	hostip
-
-#	libevent
+	hostip \
+	libevent
 
 if PLUGINS
 SUBDIRS += \

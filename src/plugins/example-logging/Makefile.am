@@ -12,7 +12,8 @@ libdcplugin_example_logging_la_LDFLAGS = \
 	-avoid-version \
 	-export-dynamic \
 	-module \
-	-no-undefined
+	-no-undefined \
+	-lldns
 
 libdcplugin_example_logging_la_CPPFLAGS = \
 	$(LTDLINCL) \
