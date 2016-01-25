@@ -280,8 +280,11 @@ AC_CHECK_HEADER([ldns/ldns.h], [
     use_ldns=yes
   ])
 ], [ ],
-[#include <stdlib.h>
- #include <stdint.h>])
+[
+ #include <stdlib.h>
+ #include <stdint.h>
+]
+)
 AM_CONDITIONAL(USE_LDNS, test x$use_ldns = xyes)
 AC_SUBST([LDNS_LIBS])
 
@@ -324,6 +327,30 @@ AC_ARG_ENABLE(plugins,
 [CPPFLAGS="$CPPFLAGS -DPLUGINS=1"
  plugins=enabled])
 AM_CONDITIONAL(PLUGINS, test x$plugins = xenabled)
+
+AC_ARG_ENABLE(mysql, [
+AS_HELP_STRING(--enable-mysql,Enable mysql for plugins)
+], [
+MYSQL_CLIENT()
+AC_DEFINE(USE_MYSQL,, [use mysql] )
+])
+
+AC_SUBST([USE_MYSQL])
+
+AC_SUBST([MYSQL_CLIENT_LIBS])
+AC_SUBST([MYSQL_CLIENT_CFLAGS])
+
+use_memcached=no
+
+AC_CHECK_HEADER([libmemcached/memcached.h], [
+AC_DEFINE(USE_MEMCACHED,, [Define to use memcached])
+MEMCACHED_LIBS=`pkg-config --libs libmemcached`
+use_memcached=yes])
+
+AM_CONDITIONAL(USE_MEMCACHED, test x$use_memcached = xyes)
+AC_SUBST([MEMCACHED_LIBS])
+
+AC_SUBST([USE_MEMCACHED])
 
 relaxed_plugins_permissions=disabled
 AC_ARG_ENABLE(relaxed-plugins-permissions,
@@ -440,9 +467,8 @@ AC_CONFIG_FILES([Makefile
                  src/plugins/ldns-cache/Makefile
                  src/plugins/example-ldns-aaaa-blocking/Makefile
                  src/plugins/example-ldns-blocking/Makefile
-                 src/plugins/example-ldns-opendns-deviceid/Makefile
-])
-dnl                 test/Makefile
+                 src/plugins/example-ldns-opendns-deviceid/Makefile])
+
 
 
 AC_OUTPUT

@@ -6,25 +6,42 @@
 
 #include <ldns/ldns.h>
 
+#include "config.h"
+
 DCPLUGIN_MAIN(__FILE__);
 
-#define WITH_MYSQL
-#define DEBUG
-
-#ifdef WITH_MYSQL
+#ifdef USE_MYSQL
 #include <mysql.h>
+#endif
+
+#ifdef USE_MEMCACHED
+#include <libmemcached/memcached.h>
 #endif
 
 struct plugin_priv_data {
     FILE *fp;
-#ifdef WITH_MYSQL
+#ifdef USE_MYSQL
     MYSQL mysql;
     int connected;
 #endif
 } _priv_data;
 
+#ifdef USE_MEMCACHED
+const char *memcached_opt = "--SOCKET=/var/run/memcached/memcached.socket";
 
-#ifdef WITH_MYSQL
+void
+dcplugin_init_memcached()
+{
+    memcached_st *memc;
+    if ((memc = memcached(memcached_opt, strlen(memcached_opt)))) {
+        memcached_behavior_set(memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
+        memcached_free(memc);
+    }
+}
+
+#endif
+
+#ifdef USE_MYSQL
 
 typedef enum {POLICY_UNKNOWN, POLICY_DEFAULT, POLICY_DIRECT, POLICY_PROXY, POLICY_BLOCK} policy_type_t;
 
@@ -223,13 +240,17 @@ dcplugin_init(DCPlugin * const dcplugin, int argc, char *argv[])
     }
     _priv_data.fp = fp;
 
-#ifdef WITH_MYSQL
+#ifdef USE_MYSQL
     mysql_library_init(0, NULL, NULL);
     mysql_init(&_priv_data.mysql);
     my_bool reconnect = 1;
 
     mysql_options(&_priv_data.mysql, MYSQL_OPT_RECONNECT, &reconnect);
     _priv_data.connected = 0;
+#endif
+
+#ifdef USE_MEMCACHED
+    dcplugin_init_memcached();
 #endif
 
     dcplugin_set_user_data(dcplugin, &_priv_data);
@@ -245,7 +266,7 @@ dcplugin_destroy(DCPlugin * const dcplugin)
     if (priv->fp != stdout) {
         fclose(priv->fp);
     }
-#ifdef WITH_MYSQL
+#ifdef USE_MYSQL
     mysql_close(&priv->mysql);
     mysql_library_end();
 #endif
@@ -403,7 +424,7 @@ dcplugin_sync_post_filter(DCPlugin *dcplugin, DCPluginDNSPacket *dcp_packet)
     domain_name = ldns_rdf2str(ldns_rr_owner(rr));
 
     fprintf(fp, "Question: %s\n", domain_name);
-#ifdef WITH_MYSQL
+#ifdef USE_MYSQL
     policy_type_t policy; 
 
     MYSQL *mysql = get_mysql(priv);
@@ -435,7 +456,7 @@ dcplugin_sync_post_filter(DCPlugin *dcplugin, DCPluginDNSPacket *dcp_packet)
             uint8_t *rdf_data = ldns_rdf_data(rdf);
             ldns_rdf_type rdf_type = ldns_rdf_get_type(rdf);
 
-#ifdef WITH_MYSQL
+#ifdef USE_MYSQL
             if (rdf_type == LDNS_RDF_TYPE_A || rdf_type == LDNS_RDF_TYPE_AAAA) {
                 char *str = ldns_rdf2str(rdf);
                 _mysql_set_ip_policy(mysql, str, policy, domain_name);

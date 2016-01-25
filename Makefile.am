@@ -22,5 +22,3 @@ endif
 
 SUBDIRS += \
 	src
-
-#	test
