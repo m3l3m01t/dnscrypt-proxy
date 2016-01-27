@@ -342,15 +342,21 @@ AC_SUBST([MYSQL_CLIENT_CFLAGS])
 
 use_memcached=no
 
+AC_ARG_ENABLE(memcached,[
+AS_HELP_STRING(--enable-memcached,Enable memcached for plugins)
+], [
 AC_CHECK_HEADER([libmemcached/memcached.h], [
 AC_DEFINE(USE_MEMCACHED,, [Define to use memcached])
 MEMCACHED_LIBS=`pkg-config --libs libmemcached`
 use_memcached=yes])
+])
 
 AM_CONDITIONAL(USE_MEMCACHED, test x$use_memcached = xyes)
 AC_SUBST([MEMCACHED_LIBS])
 
 AC_SUBST([USE_MEMCACHED])
+
+#PKG_CHECK_MODULES(MEMCACHED, libmemcached >= 0.8.0) AC_SUBST(MEMCACHED_CFLAGS) AC_SUBST(MEMCACHED_LIBS)
 
 relaxed_plugins_permissions=disabled
 AC_ARG_ENABLE(relaxed-plugins-permissions,

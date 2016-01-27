@@ -10,8 +10,8 @@ libdcplugin_ldns_cache_la_SOURCES = \
 libdcplugin_ldns_cache_la_LDFLAGS = \
 	$(AM_LDFLAGS) \
 	$(LDNS_LIBS) \
-	$(MYSQL_CLIENT_LIBS) \
 	$(MEMCACHED_LIBS) \
+	$(MYSQL_CLIENT_LIBS) \
 	-avoid-version \
 	-export-dynamic \
 	-module \

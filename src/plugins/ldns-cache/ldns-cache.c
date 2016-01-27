@@ -18,32 +18,64 @@ DCPLUGIN_MAIN(__FILE__);
 #include <libmemcached/memcached.h>
 #endif
 
+typedef enum {POLICY_UNKNOWN, POLICY_DEFAULT, POLICY_DIRECT, POLICY_PROXY, POLICY_BLOCK} policy_type_t;
+
 struct plugin_priv_data {
     FILE *fp;
 #ifdef USE_MYSQL
     MYSQL mysql;
     int connected;
 #endif
+#ifdef USE_MEMCACHED
+    memcached_st *memc;
+#endif
 } _priv_data;
 
 #ifdef USE_MEMCACHED
-const char *memcached_opt = "--SOCKET=/var/run/memcached/memcached.socket";
+#define MEMCACHED_SOCKET "/var/run/memcached/memcached.socket"
+const char *memcached_opt = "--SOCKET=" MEMCACHED_SOCKET;
 
-void
-dcplugin_init_memcached()
+static void
+dcplugin_init_memcached(struct plugin_priv_data *data)
 {
     memcached_st *memc;
-    if ((memc = memcached(memcached_opt, strlen(memcached_opt)))) {
+
+    fprintf(data->fp, "init memcached\n");
+    fflush(data->fp);
+
+    memc = memcached_create(NULL);
+
+    if (memcached_server_add_unix_socket(memc, MEMCACHED_SOCKET) == MEMCACHED_SUCCESS) {
+        fprintf(data->fp, "memcached added\n");
+        fflush(data->fp);
+
         memcached_behavior_set(memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
-        memcached_free(memc);
+        data->memc = memc;
+    } else {
+        fprintf(data->fp, "failed to connect memcached:%s\n", memcached_last_error_message(memc));
+        fflush(data->fp);
+        memcached_free (memc);
     }
 }
 
+static void
+_memcached_set_ip_policy(memcached_st *memc, ldns_rdf *rdf, policy_type_t policy, const char *domain_name)
+{
+    if (memc) {
+        fprintf(_priv_data.fp, "memcache ipaddr %s, policy %d\n",
+                ldns_rdf2str(rdf), policy);
+        if (memcached_set_by_key(memc, "ip", 2, ldns_rdf_data(rdf),
+                    ldns_rdf_size(rdf), (const char *)&policy, sizeof(policy),
+                    0, 0) != MEMCACHED_SUCCESS) {
+            fprintf(_priv_data.fp, "ERROR: set %s policy %d failed: %s\n", 
+                    memcached_last_error_message(memc));
+        };
+        fflush(_priv_data.fp);
+    }
+}
 #endif
 
 #ifdef USE_MYSQL
-
-typedef enum {POLICY_UNKNOWN, POLICY_DEFAULT, POLICY_DIRECT, POLICY_PROXY, POLICY_BLOCK} policy_type_t;
 
 #define MYSQL_USER "pi"
 #define MYSQL_PASS "raspberry"
@@ -53,8 +85,8 @@ static MYSQL *
 get_mysql(struct plugin_priv_data *priv)
 {
     if (priv->connected == 0) {
-        if (mysql_real_connect(&priv->mysql, NULL, 
-                    MYSQL_USER, MYSQL_PASS, MYSQL_DB, 0, NULL, 0) == NULL) {
+        if (mysql_real_connect(&priv->mysql, "127.0.0.1", 
+                    MYSQL_USER, MYSQL_PASS, MYSQL_DB, 3306, NULL, 0) == NULL) {
             fprintf(priv->fp, "connect to mysql failed(%d):%s\n",
                     mysql_errno(&priv->mysql), mysql_error(&priv->mysql));
             return NULL;
@@ -110,9 +142,7 @@ _mysql_query_domain_policy(MYSQL *mysql, const char *domain)
     }
 
     if (sizeof(sql_statement) - statement_len <= sizeof(statement_tail)) {
-#ifdef DEBUG
         fprintf(_priv_data.fp, "domain too long: %s\n", domain);
-#endif
         return policy;
     }
 
@@ -124,10 +154,8 @@ _mysql_query_domain_policy(MYSQL *mysql, const char *domain)
 
     if (mysql_query(mysql, sql_statement) != 0) {
         /* query failed */
-#ifdef DEBUG
         fprintf(_priv_data.fp, "query domain policy failed:%s\n",
                 mysql_error(mysql));
-#endif
     } else if (mysql_field_count(mysql) > 0) {
         results = mysql_store_result(mysql);
 
@@ -196,9 +224,7 @@ _mysql_set_ip_policy(MYSQL *mysql, const char *addr,
         "REPLACE INTO " TABLE_NAME_IP " (ip, policy, dname) VALUES('%s',%d,'%s')" , 
         addr,(int)policy,domain);
 
-#ifdef DEBUG
     fprintf(_priv_data.fp, "update ip policy: %s\n", statement);
-#endif
     if (mysql_query(mysql, statement)) {
         fprintf(_priv_data.fp, "update ip policy failed: %s\n",
             mysql_error(mysql));
@@ -250,8 +276,10 @@ dcplugin_init(DCPlugin * const dcplugin, int argc, char *argv[])
 #endif
 
 #ifdef USE_MEMCACHED
-    dcplugin_init_memcached();
+    _priv_data.memc = NULL;
+    dcplugin_init_memcached(&_priv_data);
 #endif
+
 
     dcplugin_set_user_data(dcplugin, &_priv_data);
 
@@ -270,122 +298,13 @@ dcplugin_destroy(DCPlugin * const dcplugin)
     mysql_close(&priv->mysql);
     mysql_library_end();
 #endif
+#ifdef USE_MEMCACHE
+    if (priv->memc) {
+        memcached_free(priv->memc);
+    }
+#endif
     return 0;
 }
-
-#if 0
-DCPluginSyncFilterResult
-dcplugin_sync_pre_filter(DCPlugin *dcplugin, DCPluginDNSPacket *dcp_packet)
-{
-    ldns_pkt *pkt = NULL;
-
-    struct plugin_priv_data *priv = dcplugin_get_user_data(dcplugin);
-    FILE     *fp = priv->fp;
-
-    uint8_t  *wire_data = dcplugin_get_wire_data(dcp_packet);
-    size_t   wire_data_len = dcplugin_get_wire_data_len(dcp_packet);
-
-    if (ldns_wire2pkt(&pkt, wire_data, wire_data_len) == LDNS_STATUS_OK) {
-        ldns_rr_list *list;
-
-        list = ldns_pkt_question(pkt);
-
-        fprintf(fp, "packet ID: 0x%04x\n", ldns_pkt_id(pkt));
-
-        fputs("Pre-filter Question:",fp);
-        for (int i = 0; list && i < ldns_rr_list_rr_count(list); i++) {
-            ldns_rr * rr = ldns_rr_list_rr(list, i);
-            ldns_rr_class klz = ldns_rr_get_class(rr);
-            ldns_rr_type type = ldns_rr_get_type(rr);
-
-            if (i == 0) {
-                ldns_rdf *owner = ldns_rr_owner(rr);
-                char *owner_str = ldns_rdf2str(owner);
-                fprintf(fp, "0x%04x %s\n", ldns_rdf_get_type(owner), owner_str);
-                free(owner_str);
-            }
-
-            fputs("Class:",fp);
-            switch (klz) {
-                case LDNS_RR_CLASS_IN: //the Internet
-                    fputs("IN", fp);
-                    break;
-                case LDNS_RR_CLASS_CH: //Chaos class.
-                    fputs("CH", fp);
-                    break;
-                case LDNS_RR_CLASS_HS: //Hesiod (Dyer 87)
-                    fputs("HS", fp);
-                    break;
-                case LDNS_RR_CLASS_NONE: //None class, dynamic update.
-                    fputs("NONE", fp);
-                    break;
-                default:
-                    fprintf(fp, "[0x%x]", klz);
-                    break;
-            };
-
-            if (klz != LDNS_RR_CLASS_IN)
-                continue;
-
-            fputs(", RR Type:",fp);
-            switch (type) {
-                case LDNS_RR_TYPE_A:// a host address
-                    fputs("A", fp);
-                    break;
-                case LDNS_RR_TYPE_NS: //an authoritative name server
-                    fputs("NS", fp);
-                    break;
-                case LDNS_RR_TYPE_CNAME: 
-                    //the canonical name for an alias
-                    fputs("CNAME", fp);
-                    break;
-                case LDNS_RR_TYPE_SOA:
-                    //marks the start of a zone of authority
-                    fputs("SOA", fp);
-                    break;
-                case LDNS_RR_TYPE_MX: //mail exchange
-                    fputs("MX", fp);
-                    break;
-                case LDNS_RR_TYPE_AAAA: //ipv6 address
-                    fputs("AAAA", fp);
-                    break;
-                case LDNS_RR_TYPE_SRV:  //SRV record RFC2782.
-                    fputs("SRV", fp);
-                    break;
-                default:
-                    fprintf(fp, "[0x%x]", type);
-                    break;
-            }
-
-            fprintf(fp, ", rdf count %d\n", ldns_rr_rd_count(rr));
-            for (int j = 0; j < ldns_rr_rd_count(rr); j++) {
-                ldns_rdf *rdf = ldns_rr_rdf(rr, j);
-                int rdf_sz = ldns_rdf_size(rdf);
-                uint8_t *rdf_data = ldns_rdf_data(rdf);
-                ldns_rdf_type rdf_type = ldns_rdf_get_type(rdf);
-
-                fprintf(fp, "\t%d rd type %d, size %d.", j, (int)ldns_rdf_get_type(rdf), rdf_sz);
-                for (size_t k = 0; k < rdf_sz; k++) {
-                    fputs((k % 16) ? " ":"\n", fp);
-                    fprintf(fp, "%02x", rdf_data[k]);
-                }
-                fputs("\n", fp);
-
-                if (rdf_type == LDNS_RDF_TYPE_A ||
-                        rdf_type == LDNS_RDF_TYPE_AAAA ||
-                        rdf_type == LDNS_RDF_TYPE_DNAME) {
-                    char *str = ldns_rdf2str(rdf);
-                    fprintf(fp, "%s\n", str);
-                    free(str);
-                }
-            }
-        }
-        ldns_pkt_free(pkt);
-    }
-
-    return DCP_SYNC_FILTER_RESULT_OK;
-}
-#endif
 
 DCPluginSyncFilterResult
 dcplugin_sync_post_filter(DCPlugin *dcplugin, DCPluginDNSPacket *dcp_packet)
@@ -453,16 +372,19 @@ dcplugin_sync_post_filter(DCPlugin *dcplugin, DCPluginDNSPacket *dcp_packet)
         for (int j = 0; j < ldns_rr_rd_count(rr); j++) {
             ldns_rdf *rdf = ldns_rr_rdf(rr, j);
             int rdf_sz = ldns_rdf_size(rdf);
-            uint8_t *rdf_data = ldns_rdf_data(rdf);
+
             ldns_rdf_type rdf_type = ldns_rdf_get_type(rdf);
 
-#ifdef USE_MYSQL
             if (rdf_type == LDNS_RDF_TYPE_A || rdf_type == LDNS_RDF_TYPE_AAAA) {
-                char *str = ldns_rdf2str(rdf);
-                _mysql_set_ip_policy(mysql, str, policy, domain_name);
-                free(str);
-            }
+                char *ipaddr = ldns_rdf2str(rdf);
+#ifdef USE_MYSQL
+                _mysql_set_ip_policy(mysql, ipaddr, policy, domain_name);
 #endif
+#ifdef USE_MEMCACHED
+                _memcached_set_ip_policy(priv->memc, rdf, policy, domain_name);
+#endif
+                free(ipaddr);
+            }
         }
     }
 
