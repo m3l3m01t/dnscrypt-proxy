@@ -33,7 +33,7 @@ struct plugin_priv_data {
 
 #ifdef USE_MEMCACHED
 #define MEMCACHED_SOCKET "/var/run/memcached/memcached.socket"
-const char *memcached_opt = "--SOCKET=" MEMCACHED_SOCKET;
+//const char *memcached_opt = "--SOCKET=" MEMCACHED_SOCKET;
 
 static void
 dcplugin_init_memcached(struct plugin_priv_data *data)
@@ -45,7 +45,8 @@ dcplugin_init_memcached(struct plugin_priv_data *data)
 
     memc = memcached_create(NULL);
 
-    if (memcached_server_add_unix_socket(memc, MEMCACHED_SOCKET) == MEMCACHED_SUCCESS) {
+    //if (memcached_server_add_unix_socket(memc, MEMCACHED_SOCKET) == MEMCACHED_SUCCESS)
+    if (memcached_server_add(memc, "127.0.0.1", 0) == MEMCACHED_SUCCESS) {
         fprintf(data->fp, "memcached added\n");
         fflush(data->fp);
 
@@ -67,7 +68,7 @@ _memcached_set_ip_policy(memcached_st *memc, ldns_rdf *rdf, policy_type_t policy
         if (memcached_set_by_key(memc, "ip", 2, ldns_rdf_data(rdf),
                     ldns_rdf_size(rdf), (const char *)&policy, sizeof(policy),
                     0, 0) != MEMCACHED_SUCCESS) {
-            fprintf(_priv_data.fp, "ERROR: set %s policy %d failed: %s\n", 
+            fprintf(_priv_data.fp, "ERROR: set policy failed: %s\n",
                     memcached_last_error_message(memc));
         };
         fflush(_priv_data.fp);
