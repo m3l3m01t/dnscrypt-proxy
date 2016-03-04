@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <ldns/ldns.h>
 
@@ -31,8 +32,10 @@ struct plugin_priv_data {
 #endif
 } _priv_data;
 
+static const char *db_host = "127.0.0.1";
+
 #ifdef USE_MEMCACHED
-#define MEMCACHED_SOCKET "/var/run/memcached/memcached.socket"
+//#define MEMCACHED_SOCKET "/var/run/memcached/memcached.socket"
 //const char *memcached_opt = "--SOCKET=" MEMCACHED_SOCKET;
 
 static void
@@ -46,7 +49,7 @@ dcplugin_init_memcached(struct plugin_priv_data *data)
     memc = memcached_create(NULL);
 
     //if (memcached_server_add_unix_socket(memc, MEMCACHED_SOCKET) == MEMCACHED_SUCCESS)
-    if (memcached_server_add(memc, "127.0.0.1", 0) == MEMCACHED_SUCCESS) {
+    if (memcached_server_add(memc, db_host, 0) == MEMCACHED_SUCCESS) {
         fprintf(data->fp, "memcached added\n");
         fflush(data->fp);
 
@@ -86,7 +89,7 @@ static MYSQL *
 get_mysql(struct plugin_priv_data *priv)
 {
     if (priv->connected == 0) {
-        if (mysql_real_connect(&priv->mysql, "127.0.0.1", 
+        if (mysql_real_connect(&priv->mysql, db_host,
                     MYSQL_USER, MYSQL_PASS, MYSQL_DB, 3306, NULL, 0) == NULL) {
             fprintf(priv->fp, "connect to mysql failed(%d):%s\n",
                     mysql_errno(&priv->mysql), mysql_error(&priv->mysql));
@@ -258,13 +261,18 @@ dcplugin_init(DCPlugin * const dcplugin, int argc, char *argv[])
 {
     FILE *fp;
 
-    if (argc != 2U) {
+    if (argc < 2U) {
         fp = stdout;
     } else {
         if ((fp = fopen(argv[1], "w")) == NULL) {
             return -1;
         }
+		if (argc > 2) {
+			db_host = strdup(argv[2]);
+		}
     }
+
+	fprintf(fp, "database %s\n", db_host);
     _priv_data.fp = fp;
 
 #ifdef USE_MYSQL
@@ -310,6 +318,7 @@ dcplugin_destroy(DCPlugin * const dcplugin)
 DCPluginSyncFilterResult
 dcplugin_sync_post_filter(DCPlugin *dcplugin, DCPluginDNSPacket *dcp_packet)
 {
+	int i, j;
     struct plugin_priv_data *priv = dcplugin_get_user_data(dcplugin);
     FILE     *fp = priv->fp;
 
@@ -361,7 +370,7 @@ dcplugin_sync_post_filter(DCPlugin *dcplugin, DCPluginDNSPacket *dcp_packet)
 
     list = ldns_pkt_answer (resp);
 
-    for (int i = 0; list && i < ldns_rr_list_rr_count(list); i++) {
+    for (i = 0; list && i < ldns_rr_list_rr_count(list); i++) {
         ldns_rr * rr = ldns_rr_list_rr(list, i);
         ldns_rr_class klz = ldns_rr_get_class(rr);
         ldns_rr_type type = ldns_rr_get_type(rr);
@@ -370,7 +379,7 @@ dcplugin_sync_post_filter(DCPlugin *dcplugin, DCPluginDNSPacket *dcp_packet)
             continue;
         } 
 
-        for (int j = 0; j < ldns_rr_rd_count(rr); j++) {
+        for (j = 0; j < ldns_rr_rd_count(rr); j++) {
             ldns_rdf *rdf = ldns_rr_rdf(rr, j);
             int rdf_sz = ldns_rdf_size(rdf);
 
